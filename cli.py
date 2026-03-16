@@ -36,7 +36,17 @@ async def search_command(args):
             print("[!] No matching markets found.")
             return
 
+        # Optionally apply semantic filtering if Gemini is enabled
+        if aggregator.gemini_enabled:
+            print("[*] Enhancing search with Gemini AI semantic filtering...")
+            matched = await aggregator.semantic_filter(args.query, matched)
+
         probs = aggregator.calculate_aggregate_probability(matched)
+
+        # Generate AI summary if enabled
+        ai_summary = ""
+        if aggregator.gemini_enabled:
+            ai_summary = await aggregator.generate_summary(args.query, probs, len(matched))
 
         print("\n" + "="*60)
         print(f"AGGREGATED RESULTS FOR: {args.query}")
@@ -45,6 +55,10 @@ async def search_command(args):
         print(f"Simple Average:     {probs.get('simple_average', 0):.2%}")
         print(f"Liquidity Weighted: {probs.get('liquidity_weighted', 0):.2%}")
         print("="*60)
+
+        if ai_summary:
+            print(f"\nAI SUMMARY:\n{ai_summary}")
+            print("="*60)
 
         print("\nIndividual Markets (Top 15):")
         for m in matched[:15]:
