@@ -3,6 +3,9 @@ import asyncio
 import httpx
 import json
 import logging
+import csv
+from io import StringIO
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from predmarket import KalshiRest, PolymarketRest
 from dotenv import load_dotenv
@@ -33,7 +36,6 @@ class MarketFetcher:
     def _matches_query(self, title: str, query: Optional[str]) -> bool:
         if not query:
             return True
-        # Keyword-based matching for better recall (OR logic)
         keywords = query.lower().split()
         title_lower = title.lower()
         return any(k in title_lower for k in keywords)
@@ -92,8 +94,6 @@ class MarketFetcher:
             markets = []
             for item in events:
                 title = item.get('title', '')
-
-                # Check if event or any of its markets match keywords
                 if not self._matches_query(title, query):
                     match_found = False
                     for market in item.get('markets', []):
@@ -196,7 +196,67 @@ class MarketFetcher:
             return []
 
     async def fetch_forecastex_markets(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
-        return []
+        """
+        Fetches ForecastEx data from their public daily CSV prices.
+        """
+        try:
+            client = await self.get_client()
+            # Try today, then yesterday if today's data isn't ready
+            dates_to_try = [
+                datetime.now().strftime("%Y%m%d"),
+                (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+            ]
+
+            content = None
+            for date_str in dates_to_try:
+                url = f"https://forecastex.com/api/download?type=prices&date={date_str}"
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    content = resp.text
+                    break
+
+            if not content:
+                return []
+
+            markets_map = {} # event_contract -> {question, yes_prob, no_prob}
+            f = StringIO(content)
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                contract_id = row['event_contract']
+                # Local filtering
+                if query and query.lower() not in contract_id.lower():
+                    continue
+
+                subtype = row['subtype'].upper()
+                price = float(row['end_price'] or 0)
+
+                if contract_id not in markets_map:
+                    markets_map[contract_id] = {"yes": 0.0, "no": 0.0, "oi": 0}
+
+                if subtype == "YES":
+                    markets_map[contract_id]["yes"] = price
+                elif subtype == "NO":
+                    markets_map[contract_id]["no"] = price
+
+                markets_map[contract_id]["oi"] += int(row.get('open_interest', 0) or 0)
+
+            markets = []
+            for cid, data in markets_map.items():
+                markets.append({
+                    "platform": "ForecastEx",
+                    "question": f"ForecastEx Contract: {cid}",
+                    "outcomes": [
+                        {"name": "Yes", "probability": data["yes"], "volume": data["oi"]},
+                        {"name": "No", "probability": data["no"], "volume": data["oi"]}
+                    ],
+                    "id": cid,
+                    "url": "https://forecastex.com/markets"
+                })
+            return markets
+        except Exception as e:
+            logger.error(f"Error fetching ForecastEx: {e}")
+            return []
 
     async def fetch_all(self, query: Optional[str] = None):
         results = await asyncio.gather(
@@ -211,12 +271,9 @@ class MarketFetcher:
         for r in results:
             all_markets.extend(r)
 
-        kalshi_results = [m for m in all_markets if m['platform'] == "Kalshi"]
-        for m in kalshi_results:
-            m_copy = m.copy()
-            m_copy['platform'] = "Robinhood"
-            m_copy['url'] = "https://robinhood.com/prediction-markets"
-            all_markets.append(m_copy)
+        # Note: Robinhood routes to Kalshi. To avoid misleading duplication,
+        # we will only show Kalshi results here. Users should be aware that Robinhood
+        # prices will mirror these.
 
         return all_markets
 
