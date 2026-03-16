@@ -1,15 +1,25 @@
+import os
 import asyncio
 import httpx
 import requests
 import json
 from typing import List, Dict, Any
 from predmarket import KalshiRest, PolymarketRest
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class MarketFetcher:
     def __init__(self):
         self._async_client = None
         self._kalshi = None
         self._polymarket = None
+
+        # API Keys from environment if available
+        self.kalshi_key_id = os.getenv("KALSHI_KEY_ID")
+        self.kalshi_key_secret = os.getenv("KALSHI_KEY_SECRET")
+        self.polymarket_api_key = os.getenv("POLYMARKET_API_KEY")
 
     async def get_client(self):
         if self._async_client is None or self._async_client.is_closed:
