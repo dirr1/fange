@@ -2,6 +2,7 @@ import os
 import argparse
 import asyncio
 import sys
+import logging
 from dotenv import load_dotenv
 from fetcher import MarketFetcher
 from aggregator import MarketAggregator
@@ -10,13 +11,25 @@ from tracker import RealTimeTracker
 # Load environment variables from .env file
 load_dotenv()
 
+# Configure logging at the application entry point
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 async def search_command(args):
     fetcher = MarketFetcher()
     aggregator = MarketAggregator()
 
     print(f"[*] Searching for: '{args.query}' across platforms...")
     try:
-        all_markets = await fetcher.fetch_all()
+        # Pass query to fetch_all for more efficient/targeted fetching
+        all_markets = await fetcher.fetch_all(query=args.query)
+        # Aggregator still does fuzzy matching and sorting
         matched = aggregator.aggregate_markets(args.query, all_markets)
 
         if not matched:
@@ -33,8 +46,8 @@ async def search_command(args):
         print(f"Liquidity Weighted: {probs.get('liquidity_weighted', 0):.2%}")
         print("="*60)
 
-        print("\nIndividual Markets:")
-        for m in matched:
+        print("\nIndividual Markets (Top 15):")
+        for m in matched[:15]:
             yes_prob = 0
             found_yes = False
             for o in m['outcomes']:
