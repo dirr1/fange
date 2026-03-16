@@ -1,0 +1,2 @@
+2026-03-16 14:30:51,829 - INFO - Calculated probs: {'simple_average': 0.6, 'liquidity_weighted': 0.6, 'accuracy_weighted': 0.6} from 1 sources
+2026-03-16 14:32:28,195 - INFO - Calculated probs: {'simple_average': 0.5, 'liquidity_weighted': 0.5, 'accuracy_weighted': 0.5087719298245614} from 2 sources
