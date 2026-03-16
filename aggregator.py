@@ -8,20 +8,22 @@ logger = logging.getLogger(__name__)
 
 class MarketAggregator:
     def __init__(self, accuracy_weights: Dict[str, float] = None):
-        # Default accuracy weights based on studies mentioned in instructions
+        # Default accuracy weights based on user-provided statistics
+        # PredictIt: 93%, Kalshi: 78%, Polymarket: 67%, Manifold: 87%, ForecastEx: 90%, Robinhood: 78%
         self.accuracy_weights = accuracy_weights or {
             "PredictIt": 0.93,
             "Kalshi": 0.78,
-            "Polymarket": 0.67
+            "Polymarket": 0.67,
+            "Manifold": 0.87,
+            "ForecastEx": 0.90,
+            "Robinhood": 0.78
         }
 
     def _normalize_text(self, text: str) -> str:
         if not text:
             return ""
-        # Lowercase, remove special characters, remove common fillers
         text = str(text).lower()
         text = re.sub(r'[^a-z0-9\s]', '', text)
-        # Remove common phrases that might differ between platforms
         fillers = ["will", "the", "be", "by", "in", "of", "a", "an", "at", "to", "how", "many"]
         words = [w for w in text.split() if w not in fillers]
         return " ".join(words)
@@ -40,12 +42,10 @@ class MarketAggregator:
         matched = []
         for m in all_markets:
             sim = self.calculate_similarity(query, m['question'])
-            # Also allow direct substring match for better recall
             if sim >= threshold or query.lower() in m['question'].lower():
                 m['similarity'] = sim
                 matched.append(m)
 
-        # Sort by similarity
         matched.sort(key=lambda x: x.get('similarity', 0), reverse=True)
         return matched
 
@@ -72,7 +72,6 @@ class MarketAggregator:
             prob = None
             vol = 0
 
-            # 1. Try to find the specific outcome
             for o in m['outcomes']:
                 o_name = str(o.get('name') or "").lower()
                 if target in o_name or o_name in target:
@@ -80,7 +79,6 @@ class MarketAggregator:
                     vol = o.get('volume', 0) or 0
                     break
 
-            # 2. Fallback to first outcome if not found
             if prob is None and m['outcomes']:
                 prob = m['outcomes'][0]['probability']
                 vol = m['outcomes'][0].get('volume', 0) or 0
@@ -91,7 +89,6 @@ class MarketAggregator:
                 weights.append(float(self.accuracy_weights.get(m['platform'], 0.5)))
 
         if not probabilities:
-            logger.debug(f"No probabilities found for group of size {len(group)}")
             return results
 
         # Simple Average
@@ -107,7 +104,7 @@ class MarketAggregator:
         # Accuracy-Weighted Average
         total_weight = sum(weights)
         if total_weight > 0:
-            results["accuracy_weighted"] = sum(p * w for p, v in zip(probabilities, weights)) / total_weight
+            results["accuracy_weighted"] = sum(p * w for p, w in zip(probabilities, weights)) / total_weight
         else:
             results["accuracy_weighted"] = results["simple_average"]
 
