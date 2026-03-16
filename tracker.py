@@ -3,12 +3,12 @@ import time
 import requests
 import threading
 import logging
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Optional
 from fetcher import MarketFetcher
 from aggregator import MarketAggregator
 
-# Set up logging for tracking
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 class RealTimeTracker:
     def __init__(self, fetcher_factory: Callable[[], MarketFetcher], aggregator: MarketAggregator):
@@ -57,31 +57,33 @@ class RealTimeTracker:
                 continue
 
             try:
-                # Ensure fetcher is initialized if running in foreground
                 if self.fetcher is None:
                     self.fetcher = self.fetcher_factory()
 
-                logging.info(f"Checking {len(self.tracking_jobs)} tracking jobs...")
-                all_markets = await self.fetcher.fetch_all()
-
                 for query, job in list(self.tracking_jobs.items()):
                     if start_time - job["last_run"] >= job["interval"]:
+                        logger.info(f"Checking tracking job for: '{query}'")
+                        # PASS THE QUERY TO FETCHER FOR TARGETED RESULTS
+                        all_markets = await self.fetcher.fetch_all(query=query)
                         matched = self.aggregator.aggregate_markets(query, all_markets)
+
                         if matched:
                             probs = self.aggregator.calculate_aggregate_probability(matched)
                             current_prob = probs.get("accuracy_weighted", 0)
 
-                            logging.info(f"Query: '{query}' | Current Prob: {current_prob:.2%}")
+                            logger.info(f"Query: '{query}' | Current Prob: {current_prob:.2%}")
 
                             # Update if first time or changed by > 1%
                             if job["last_prob"] is None or abs(current_prob - job["last_prob"]) > 0.01:
-                                logging.info(f"Probability shift detected for '{query}'. Sending notification.")
+                                logger.info(f"Probability shift detected for '{query}'. Sending notification.")
                                 self.send_discord_update(query, current_prob, probs, job["webhook_url"])
                                 job["last_prob"] = current_prob
+                        else:
+                            logger.warning(f"No markets found for tracked query: '{query}'")
 
                         job["last_run"] = start_time
             except Exception as e:
-                logging.error(f"Error in tracker loop: {e}")
+                logger.error(f"Error in tracker loop: {e}")
 
             elapsed = time.time() - start_time
             sleep_time = max(1, 10 - elapsed)
@@ -110,7 +112,7 @@ class RealTimeTracker:
             resp = requests.post(webhook_url, json=payload, timeout=10)
             resp.raise_for_status()
         except Exception as e:
-            logging.error(f"Failed to send Discord notification for '{query}': {e}")
+            logger.error(f"Failed to send Discord notification for '{query}': {e}")
 
     def stop(self):
         self.is_running = False

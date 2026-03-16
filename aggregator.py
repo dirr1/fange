@@ -3,9 +3,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 
-# Set up logging to a file for debugging
-logging.basicConfig(filename='aggregator.log', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Use a named logger for this module
+logger = logging.getLogger(__name__)
 
 class MarketAggregator:
     def __init__(self, accuracy_weights: Dict[str, float] = None):
@@ -92,7 +91,7 @@ class MarketAggregator:
                 weights.append(float(self.accuracy_weights.get(m['platform'], 0.5)))
 
         if not probabilities:
-            logging.info(f"No probabilities found for group of size {len(group)}")
+            logger.debug(f"No probabilities found for group of size {len(group)}")
             return results
 
         # Simple Average
@@ -108,9 +107,8 @@ class MarketAggregator:
         # Accuracy-Weighted Average
         total_weight = sum(weights)
         if total_weight > 0:
-            results["accuracy_weighted"] = sum(p * w for p, w in zip(probabilities, weights)) / total_weight
+            results["accuracy_weighted"] = sum(p * w for p, v in zip(probabilities, weights)) / total_weight
         else:
             results["accuracy_weighted"] = results["simple_average"]
 
-        logging.info(f"Calculated probs: {results} from {len(probabilities)} sources")
         return results
