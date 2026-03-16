@@ -30,18 +30,25 @@ class MarketFetcher:
             self._polymarket = PolymarketRest(self._async_client)
         return self._async_client
 
+    def _matches_query(self, title: str, query: Optional[str]) -> bool:
+        if not query:
+            return True
+        # Keyword-based matching for better recall (OR logic)
+        keywords = query.lower().split()
+        title_lower = title.lower()
+        return any(k in title_lower for k in keywords)
+
     async def fetch_kalshi_markets(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             await self.get_client()
             markets = []
 
-            # Fetch a large batch of contracts and filter locally for best recall
             contracts_resp = await self._kalshi.fetch_contracts(limit=1000)
             c_data = contracts_resp.model_dump()
 
             for contract in c_data.get('data', []):
                 title = contract.get('title', '')
-                if query and query.lower() not in title.lower():
+                if not self._matches_query(title, query):
                     continue
 
                 raw_c = contract.get('raw', {})
@@ -85,12 +92,12 @@ class MarketFetcher:
             markets = []
             for item in events:
                 title = item.get('title', '')
-                # Filter events by query
-                if query and query.lower() not in title.lower():
-                    # Also check question in nested markets
+
+                # Check if event or any of its markets match keywords
+                if not self._matches_query(title, query):
                     match_found = False
                     for market in item.get('markets', []):
-                        if query.lower() in market.get('question', '').lower():
+                        if self._matches_query(market.get('question', ''), query):
                             match_found = True
                             break
                     if not match_found:
@@ -139,12 +146,10 @@ class MarketFetcher:
             markets = []
             for market in data.get('markets', []):
                 name = market.get('name', '')
-                if query and query.lower() not in name.lower():
+                if not self._matches_query(name, query):
                     continue
 
                 outcomes = []
-                # PredictIt volume is per-contract in their UI, but API has less detail
-                # We'll use 0 for now as it's not directly in the /all/ API summary
                 for contract in market.get('contracts', []):
                     outcomes.append({
                         "name": contract.get('name'),
@@ -191,8 +196,6 @@ class MarketFetcher:
             return []
 
     async def fetch_forecastex_markets(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
-        # ForecastEx is institutional (IBKR) and requires TWS API / Gateway.
-        # This stub represents the platform's support in the aggregator.
         return []
 
     async def fetch_all(self, query: Optional[str] = None):
@@ -208,7 +211,6 @@ class MarketFetcher:
         for r in results:
             all_markets.extend(r)
 
-        # Robinhood routes to Kalshi
         kalshi_results = [m for m in all_markets if m['platform'] == "Kalshi"]
         for m in kalshi_results:
             m_copy = m.copy()

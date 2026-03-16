@@ -1,5 +1,4 @@
 predmarket
-pandas
 requests
 python-dotenv
 httpx

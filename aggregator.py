@@ -24,7 +24,8 @@ class MarketAggregator:
             return ""
         text = str(text).lower()
         text = re.sub(r'[^a-z0-9\s]', '', text)
-        fillers = ["will", "the", "be", "by", "in", "of", "a", "an", "at", "to", "how", "many"]
+        # Reduced filler list to improve recall and matching accuracy
+        fillers = ["the", "be", "a", "an"]
         words = [w for w in text.split() if w not in fillers]
         return " ".join(words)
 
@@ -35,13 +36,14 @@ class MarketAggregator:
             return 0.0
         return SequenceMatcher(None, n1, n2).ratio()
 
-    def aggregate_markets(self, query: str, all_markets: List[Dict[str, Any]], threshold: float = 0.6) -> List[Dict[str, Any]]:
+    def aggregate_markets(self, query: str, all_markets: List[Dict[str, Any]], threshold: float = 0.4) -> List[Dict[str, Any]]:
         """
-        Find markets matching the query.
+        Find markets matching the query. Lowered default threshold to 0.4 for broader results.
         """
         matched = []
         for m in all_markets:
             sim = self.calculate_similarity(query, m['question'])
+            # Match if similarity is above threshold or if query is a substring of the question
             if sim >= threshold or query.lower() in m['question'].lower():
                 m['similarity'] = sim
                 matched.append(m)
