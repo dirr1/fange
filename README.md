@@ -15,13 +15,16 @@ This tool aggregates data from the following platforms using historical directio
 | **Robinhood** | 78% | Consumer hub (routes political/economic trades to Kalshi). |
 | **Polymarket** | 67% | High speed and volume, though with higher "noise" on niche contracts. |
 
+*Note: Robinhood data is identical to Kalshi as it routes orders to the Kalshi exchange. To avoid redundancy, the tool prioritizes Kalshi data for the same contracts but applies the 78% coefficient for accuracy weighting.*
+
 ## Features
 
-- **Unified Search**: Search for topics across 6+ prediction markets simultaneously.
+- **Unified Search**: Search for topics across 5+ prediction markets simultaneously.
 - **Weighted Aggregation**:
   - **Accuracy-Weighted**: Uses the coefficients above to provide a reliable "wisdom of the crowd" probability.
   - **Simple Average**: Mean of all matching market probabilities.
-  - **Liquidity-Weighted**: Weighted by trading volume where available.
+  - **Liquidity-Weighted**: Weighted by trading volume/open interest where available.
+- **High Recall Search**: Keyword-based pre-filtering and fuzzy matching (0.4 threshold) ensure comprehensive results.
 - **Real-time Tracking**: Monitor specific queries and get notified via Discord webhooks when probabilities change by >1%.
 - **Environment Support**: Manage sensitive URLs and API keys using `.env`.
 
@@ -64,6 +67,6 @@ python cli.py track "Trump wins 2024" --interval 60
 ## Project Structure
 
 - `cli.py`: Main entry point for the CLI tool.
-- `fetcher.py`: Handles data retrieval from all integrated platforms.
+- `fetcher.py`: Handles data retrieval from all integrated platforms (including ForecastEx CSV parsing).
 - `aggregator.py`: Logic for keyword matching and probability aggregation using accuracy weights.
 - `tracker.py`: Real-time monitoring and Discord notification logic.
