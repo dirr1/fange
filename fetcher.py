@@ -214,10 +214,11 @@ class MarketFetcher:
         try:
             # Search for prediction markets related to the query
             search_query = f"prediction market probability for {query}"
+            # type="auto" handles query optimization automatically
             response = self.exa.search(
                 search_query,
                 num_results=10,
-                use_autoprompt=True,
+                type="auto",
                 include_domains=["polymarket.com", "kalshi.com", "predictit.org", "manifold.markets", "forecastex.com"]
             )
             markets = []

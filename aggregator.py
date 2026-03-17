@@ -6,7 +6,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 
-import google.generativeai as genai
+from google import genai
 import cohere
 import anthropic
 from openai import OpenAI
@@ -29,13 +29,11 @@ class MarketAggregator:
         }
 
         # Initialize Tiered AI Components
-        self.gemini_enabled = False
+        self.gemini_client = None
         gemini_key = os.getenv("GEMINI_API_KEY")
         if gemini_key:
             try:
-                genai.configure(api_key=gemini_key)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
-                self.gemini_enabled = True
+                self.gemini_client = genai.Client(api_key=gemini_key)
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini: {e}")
 
@@ -226,13 +224,17 @@ class MarketAggregator:
             if self.anthropic_client:
                 resp = await asyncio.to_thread(
                     self.anthropic_client.messages.create,
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-sonnet-4-6",
                     max_tokens=300,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 return resp.content[0].text.strip()
-            elif self.gemini_enabled:
-                resp = await asyncio.to_thread(self.gemini_model.generate_content, prompt)
+            elif self.gemini_client:
+                resp = await asyncio.to_thread(
+                    self.gemini_client.models.generate_content,
+                    model='gemini-2.0-flash',
+                    contents=prompt
+                )
                 return resp.text.strip()
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
