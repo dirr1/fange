@@ -3,8 +3,7 @@ requests
 python-dotenv
 httpx
 pydantic
-google-generativeai
-voyageai
+google-genai
 cohere
 anthropic
 openai
