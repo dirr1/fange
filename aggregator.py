@@ -11,6 +11,7 @@ import cohere
 import anthropic
 from openai import OpenAI
 from groq import Groq
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Use a named logger for this module
 logger = logging.getLogger(__name__)
@@ -112,9 +113,54 @@ class MarketAggregator:
         matched.sort(key=lambda x: x.get('similarity', 0), reverse=True)
         return matched
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((Exception)), # Catch general exceptions for now
+        reraise=False
+    )
+    async def _extract_prob(self, context: str) -> Optional[float]:
+        """
+        Internal helper to extract probability with retries and failover.
+        """
+        prompt = f"""
+        Extract prediction market probability from this text: "{context}"
+        If a probability is mentioned for a "Yes" outcome, return it as a decimal between 0 and 1.
+        If multiple probabilities exist, pick the most relevant one.
+        If none found, return null.
+        Return ONLY a JSON object like {{"probability": 0.65}} or {{"probability": null}}
+        """
+
+        # Priority 1: Groq (Faster, Generous Free Tier)
+        if self.groq_client:
+            try:
+                resp = await asyncio.to_thread(
+                    self.groq_client.chat.completions.create,
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                data = json.loads(resp.choices[0].message.content)
+                return data.get('probability')
+            except Exception as e:
+                logger.warning(f"Groq extraction failed, falling back: {e}")
+
+        # Priority 2: OpenAI (Robust but potentially limited quota)
+        if self.openai_client:
+            resp = await asyncio.to_thread(
+                self.openai_client.chat.completions.create,
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(resp.choices[0].message.content)
+            return data.get('probability')
+
+        return None
+
     async def extract_missing_data(self, markets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Use fast LLM (GPT-4o mini or Groq) to extract probabilities from markets that lack them (e.g. Exa results).
+        Use fast LLM (Groq or OpenAI) to extract probabilities from markets that lack them.
         """
         extracted = []
         for m in markets:
@@ -122,48 +168,20 @@ class MarketAggregator:
                 extracted.append(m)
                 continue
 
-            # If no outcomes, try to extract from text/title
             context = m.get('text', '') or m['question']
             if not context:
                 extracted.append(m)
                 continue
 
-            prompt = f"""
-            Extract prediction market probability from this text: "{context}"
-            If a probability is mentioned for a "Yes" outcome, return it as a decimal between 0 and 1.
-            If multiple probabilities exist, pick the most relevant one.
-            If none found, return null.
-            Return ONLY a JSON object like {{"probability": 0.65}} or {{"probability": null}}
-            """
-
-            prob = None
             try:
-                if self.openai_client:
-                    resp = await asyncio.to_thread(
-                        self.openai_client.chat.completions.create,
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": prompt}],
-                        response_format={"type": "json_object"}
-                    )
-                    data = json.loads(resp.choices[0].message.content)
-                    prob = data.get('probability')
-                elif self.groq_client:
-                    resp = await asyncio.to_thread(
-                        self.groq_client.chat.completions.create,
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": prompt}],
-                        response_format={"type": "json_object"}
-                    )
-                    data = json.loads(resp.choices[0].message.content)
-                    prob = data.get('probability')
-
+                prob = await self._extract_prob(context)
                 if prob is not None:
                     m['outcomes'] = [
                         {"name": "Yes", "probability": float(prob), "volume": 0},
                         {"name": "No", "probability": 1.0 - float(prob), "volume": 0}
                     ]
             except Exception as e:
-                logger.error(f"Data extraction failed for {m['url']}: {e}")
+                logger.error(f"Final data extraction failure for {m['url']}: {e}")
 
             extracted.append(m)
         return extracted
