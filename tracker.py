@@ -1,6 +1,6 @@
 import asyncio
 import time
-import requests
+import httpx
 import threading
 import logging
 from typing import List, Dict, Any, Callable, Optional
@@ -63,20 +63,21 @@ class RealTimeTracker:
                 for query, job in list(self.tracking_jobs.items()):
                     if start_time - job["last_run"] >= job["interval"]:
                         logger.info(f"Checking tracking job for: '{query}'")
-                        # PASS THE QUERY TO FETCHER FOR TARGETED RESULTS
                         all_markets = await self.fetcher.fetch_all(query=query)
-                        matched = self.aggregator.aggregate_markets(query, all_markets)
 
-                        if matched:
-                            probs = self.aggregator.calculate_aggregate_probability(matched)
+                        # Apply semantic filtering/reranking if possible
+                        top_markets = await self.aggregator.rerank_markets(query, all_markets, top_n=10)
+
+                        if top_markets:
+                            final_markets = await self.aggregator.extract_missing_data(top_markets)
+                            probs = self.aggregator.calculate_aggregate_probability(final_markets)
                             current_prob = probs.get("accuracy_weighted", 0)
 
                             logger.info(f"Query: '{query}' | Current Prob: {current_prob:.2%}")
 
-                            # Update if first time or changed by > 1%
                             if job["last_prob"] is None or abs(current_prob - job["last_prob"]) > 0.01:
                                 logger.info(f"Probability shift detected for '{query}'. Sending notification.")
-                                self.send_discord_update(query, current_prob, probs, job["webhook_url"])
+                                await self.send_discord_update(query, current_prob, probs, job["webhook_url"])
                                 job["last_prob"] = current_prob
                         else:
                             logger.warning(f"No markets found for tracked query: '{query}'")
@@ -89,7 +90,7 @@ class RealTimeTracker:
             sleep_time = max(1, 10 - elapsed)
             await asyncio.sleep(sleep_time)
 
-    def send_discord_update(self, query: str, prob: float, all_probs: Dict[str, float], webhook_url: str):
+    async def send_discord_update(self, query: str, prob: float, all_probs: Dict[str, float], webhook_url: str):
         if not webhook_url:
             return
 
@@ -109,8 +110,9 @@ class RealTimeTracker:
             }]
         }
         try:
-            resp = requests.post(webhook_url, json=payload, timeout=10)
-            resp.raise_for_status()
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(webhook_url, json=payload, timeout=10)
+                resp.raise_for_status()
         except Exception as e:
             logger.error(f"Failed to send Discord notification for '{query}': {e}")
 
