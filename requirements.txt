@@ -4,3 +4,9 @@ python-dotenv
 httpx
 pydantic
 google-generativeai
+voyageai
+cohere
+anthropic
+openai
+groq
+exa_py
