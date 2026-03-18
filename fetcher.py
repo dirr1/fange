@@ -169,17 +169,35 @@ class MarketFetcher:
             return []
 
     async def fetch_forecastex_markets(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches ForecastEx data from their public daily CSV prices with fallback for missing dates.
+        """
         try:
             client = await self.get_client()
-            dates_to_try = [datetime.now().strftime("%Y%m%d"), (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")]
+            max_age_days = int(os.getenv("FORECASTEX_MAX_AGE_DAYS", 3))
+
             content = None
-            for date_str in dates_to_try:
+            found_date = None
+            for days_back in range(max_age_days + 1):
+                date_str = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
                 url = f"https://forecastex.com/api/download?type=prices&date={date_str}"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    content = resp.text
-                    break
-            if not content: return []
+
+                try:
+                    resp = await client.get(url, timeout=10)
+                    if resp.status_code == 200:
+                        content = resp.text
+                        found_date = date_str
+                        break
+                    elif resp.status_code == 404:
+                        logger.debug(f"ForecastEx data not found for {date_str}, trying previous day.")
+                except httpx.RequestError as e:
+                    logger.warning(f"Error requesting ForecastEx data for {date_str}: {e}")
+
+            if not content:
+                logger.warning(f"ForecastEx: No data available for the last {max_age_days} days.")
+                return []
+
+            logger.info(f"Using ForecastEx data from {found_date}")
             markets_map = {}
             f = StringIO(content)
             reader = csv.DictReader(f)
